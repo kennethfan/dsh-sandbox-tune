@@ -1,6 +1,6 @@
 {
   "name": "dsh-sandbox-tune",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "type": "module",
   "description": "让 DSH 沙箱适配开发工具：缓存重定向、可写目录授权、按规则自动批准升权，减少重复的提权弹窗。",
   "main": "./index.js",

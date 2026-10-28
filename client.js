@@ -459,7 +459,7 @@ window.__ModuleLoader__.load({
                 hint:
                   plain(draft.autoApproveMode, 'off') === 'exact'
                     ? '每条规则是一条完整命令，逐字符比较。'
-                    : '每条规则是一个命令词（如 go build）。命令含 && ; | > ` $() 等构造时一律不放行。',
+                    : '每条规则是一个命令词（如 go build）。用 && || ; | 连接的多条命令，每段都必须在规则里才放行；重定向 > < 与命令替换 ` $() 一律不放行。',
               }),
               h(
                 'div',
