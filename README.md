@@ -19,7 +19,6 @@
 - [平台支持](#平台支持)
 - [验证](#验证)
 - [已知限制](#已知限制)
-- [故障排查](#故障排查)
 
 ---
 
@@ -502,36 +501,6 @@ node test/integration.mjs
 - 叠加语义下会话无法移除全局项。
 - 注入对所有命令生效（不按命令内容判断），因为判断一段 shell 语法到底
   调用哪个工具并不可靠（`make test`、`./build.sh` 里都可能有 go）。
-
-## 故障排查
-
-### 设置页看不到「沙箱调优」
-
-1. 确认插件已启用：`dsh --profile web --dump-config | grep sandbox-tune`
-2. 浏览器 bundle 是 Host 启动时读入内存的 —— **重启 DSH**，刷新页面不够
-3. 看启动日志有没有 `did not activate` 或 `already registered`
-
-### bash 工具消失（`unknown tool "bash"`）
-
-通常是插件加载失败导致 `ctx.shell` 缺失。常见原因：
-
-- 两个执行器同时启用（base 的 `bash-sandbox` 与本插件的 `sandbox-tune-bash`）
-  → 报 `service "shell" has been registered`
-- 插件代码有语法错误 → 看启动输出的 `Error:`
-
-临时恢复：在 profile 的 `cordis.patch.yml` 里给 `sandbox-tune-bash` 加
-`disabled: true`，并加 `- id: bash-sandbox` + `disabled: false`。
-
-### 改了配置但没生效
-
-| 改的是什么 | 需要什么 |
-|---|---|
-| 全局配置（设置页 / YAML） | 立即生效，无需重启 |
-| 会话级配置 | 立即生效 |
-| 插件代码 / 界面文案 | **重启 DSH**（bundle 在内存里） |
-
-排查顺序：① 文件里改了吗 → ② 运行中进程的启动时间 vs 文件修改时间 →
-③ 浏览器缓存。
 
 ## 许可
 
