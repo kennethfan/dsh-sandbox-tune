@@ -1,0 +1,65 @@
+{
+  "name": "dsh-sandbox-tune",
+  "version": "0.10.0",
+  "type": "module",
+  "description": "让 DSH 沙箱适配开发工具：缓存重定向、可写目录授权、按规则自动批准升权，减少重复的提权弹窗。",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./executor": "./executor.js",
+    "./provider": "./provider.js",
+    "./cache-env": "./lib/cache-env.js",
+    "./package.json": "./package.json",
+    "./client": "./client.js"
+  },
+  "files": [
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "README.zh.md",
+    "client.js",
+    "cordis.patch.yml",
+    "executor.js",
+    "index.js",
+    "lib/cache-env.js",
+    "lib/command-approval.js",
+    "lib/command-rules.js",
+    "lib/config-value.js",
+    "lib/executor.js",
+    "lib/provider.js",
+    "lib/session-command.js",
+    "lib/session-config.js",
+    "lib/shared.js",
+    "lib/user-dirs.js",
+    "provider.js",
+    "test/windows.test.mjs"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5",
+    "@deepseek-ai/dsh-bash-sandbox": "*",
+    "@deepseek-ai/dsh-sandbox-local": "*",
+    "@deepseek-ai/dsh-shell": "*",
+    "@deepseek-ai/schemastery": "*",
+    "@deepseek-ai/dsh-pwsh-sandbox": "*",
+    "@deepseek-ai/dsh-pwsh-local": "*"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "sandbox",
+    "gocache",
+    "go-build",
+    "approval"
+  ],
+  "author": "kennethfan",
+  "license": "MIT"
+}

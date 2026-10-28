@@ -1,0 +1,90 @@
+# dsh-sandbox-tune 的 bundle patch。
+#
+# 两件事各一行：
+#   1. 关掉 base 里的 bash-sandbox，换成带缓存处理的执行器。
+#   2. 关掉 base 里的 sandbox，换成可追加写白名单的 provider。
+#
+# 为什么是「禁用 + 插入」而不是直接改 name：
+# patch 里的 name 只用于断言目标行的插件名（`applyEntryPatches` 中 name 不参与
+# 覆盖），想换实现必须另起一行；而两个执行器都会注册 ctx.shell、两个 provider
+# 都会注册 ctx.sandbox，同时挂载会因「服务重复注册」报错，所以原行必须禁用。
+#
+# 模式说明（两行必须一致，否则会错位）：
+#   mode: redirect  → 缓存重定向到 $TMPDIR/dsh，任何沙箱后端都可用（默认）
+#   mode: in-place  → 路径保持原样，把真实缓存目录授权为可写；
+#                     后端不支持时（Landlock / Windows ACL）自动回退到 redirect
+#
+# 切换成 in-place 时，把下面两处 mode 一起改掉即可。
+
+# 执行器：负责重定向，或在 in-place 下不注入任何变量
+# 关掉 base 的两个 shell 执行器：它们都注册 ctx.shell，同时挂载会冲突。
+# base 本身按平台二选一（win32 用 pwsh-sandbox，其余用 bash-sandbox），
+# 这里两个都关，再由本插件按平台接管 —— 否则 Windows 上会与 pwsh-sandbox 抢服务。
+- id: bash-sandbox
+  disabled: true
+
+- id: pwsh-sandbox
+  disabled: true
+
+- insert:
+    - id: sandbox-tune-bash
+      name: 'dsh-sandbox-tune/executor'
+      config:
+        enabled: true
+        mode: redirect
+        # 仅 redirect 模式使用；空值 → $TMPDIR/dsh。
+        # 改成工作区内路径（如 .dsh/cache）可获得重启不丢的缓存。
+        cacheRoot: ''
+        presets:
+          - go
+          - npm
+          - bun
+          - pip
+        env: {}
+        # 命令授权：自动批准沙箱升权，避免重复弹窗。默认 off。
+        #   off       每次升权都弹窗（默认，最安全）
+        #   exact     命令必须与规则逐字符相同
+        #   safe-args 命令以规则开头且不含 && ; | > ` $() 等构造
+        # 注意：放行的是 danger-full-access，整条命令不受沙箱限制，请谨慎添加规则。
+        autoApproveMode: off
+        autoApproveCommands: []
+
+# provider：负责原地授权
+- id: sandbox
+  disabled: true
+
+- insert:
+    - id: sandbox-tune-provider
+      name: 'dsh-sandbox-tune/provider'
+      config:
+        enabled: true
+        # 自动探测 go env / npm config 等真实路径，不必手填。
+        autoDetect: true
+        presets:
+          - go
+          - npm
+          - bun
+          - cargo
+        # 追加在自动探测之上的额外目录；留空即可。
+        sandboxRoots: []
+        # 用户级目录预设：默认全不授权。
+        # 可选项：user-config(~/.config)、user-cache(~/.cache)、
+        #         user-data(~/.local/share)、user-state(~/.local/state)
+        # 勾选后这些目录会被加入可写白名单 —— 命令仍在沙箱内执行，
+        # 不会整条提权到 danger-full-access。但沙箱内进程将能修改这些目录。
+        userDirs: []
+
+# 浏览器半身的挂载点：**必须是裸包名**。
+#
+# 原因：dsh-client-modules 扫描 loader 条目时，用 exactPackageSpecifier() 从
+# 条目的 name 推出包名 —— 该函数对含 "/" 的 specifier 直接返回 undefined
+# （见 dsh-client-modules 的 locatePkgJson），所以上面两条子路径行
+# （dsh-sandbox-tune/executor、dsh-sandbox-tune/provider）永远不会被扫到，
+# 浏览器半身也就不会加载，设置页不出现。
+#
+# 这一行的 Host 半身是空 apply（见 index.js），不注册任何服务，因此不会与
+# 上面两条子路径行冲突；它必须**启用**，因为 client-modules 的扫描会跳过
+# disabled 条目（processOne 里 `entry.disabled` 直接 continue）。
+- insert:
+    - id: sandbox-tune-client
+      name: 'dsh-sandbox-tune'

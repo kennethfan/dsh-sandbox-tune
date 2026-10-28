@@ -1,0 +1,53 @@
+# 一份实测可用的 profile 覆盖示例（放在 ~/.dsh/profiles/web/cordis.patch.yml）。
+#
+# 注意：patch 是**整体替换** config，不是深合并。所以覆盖时要把该行的
+# 字段写全，否则未写的字段会掉回 schema 默认值。
+#
+# 这份配置对应「已确认能用」的状态：in-place 模式 + 命令授权 safe-args。
+
+# 执行器：缓存模式 + 命令授权
+- id: sandbox-tune-bash
+  config:
+    timeoutMs: 120000
+    maxTimeoutMs: 600000
+    maxOutputBytes: 64000
+    maxSpillBytes: 67108864
+    graceMs: 3000
+    # in-place：路径不变，由 provider 把真实缓存目录授权为可写。
+    # 后端不支持时自动回退 redirect。
+    mode: in-place
+    cacheRoot: ""
+    presets:
+      - go
+      - npm
+      - bun
+      - pip
+      - cargo
+    env: {}
+    enabled: true
+    # 命令授权：safe-args 要求命令以规则开头且不含 && ; | > ` $() 等构造。
+    # 放行的是 danger-full-access，只加确实安全的构建/检查类命令。
+    autoApproveMode: safe-args
+    autoApproveCommands:
+      - go build
+      - go vet
+      - go test
+
+# provider：沙箱可写白名单
+- id: sandbox-tune-provider
+  name: dsh-sandbox-tune/provider
+  config:
+    # 额外授权目录（绝对路径）。/tmp 在 workspace-write 下本来就放行，
+    # 这里保留是为了显式表达意图。
+    sandboxRoots:
+      - /tmp
+    # 自动探测 go env / npm config 等真实缓存路径。
+    autoDetect: true
+    # 探测哪些工具。留空 = 只依赖 sandboxRoots + userDirs。
+    presets: []
+    enabled: true
+    # 用户级目录预设。默认全不授权，勾选后加入可写白名单。
+    # 可选项：user-config(~/.config) user-cache(~/.cache)
+    #         user-data(~/.local/share) user-state(~/.local/state)
+    userDirs:
+      - user-cache
