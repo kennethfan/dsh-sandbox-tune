@@ -117,13 +117,33 @@ provider 会自动跟随。
 
 ## 安装
 
+推荐用预构建的 tarball（免源码构建，装完即用）：
+
 ```sh
-dsh plugin --profile web add link:/path/to/dsh-sandbox-tune
+dsh plugin --profile web add https://github.com/kennethfan/dsh-sandbox-tune/releases/latest/download/dsh-sandbox-tune.tgz
 ```
 
-或把它加入 profile 的 `dsh.profile.bundles`。插件自带 `cordis.patch.yml`，
-会自动禁用 base 的 `bash-sandbox` / `pwsh-sandbox` / `sandbox` 三行并替换成
-自己的实现（同名服务不能重复注册，所以原行必须禁用）。
+也可以从 git 安装（会走源码构建，首次装稍慢）：
+
+```sh
+dsh plugin --profile web add github:kennethfan/dsh-sandbox-tune
+```
+
+装完**重启 DSH**，插件自带的 `cordis.patch.yml` 会自动禁用 base 的
+`bash-sandbox` / `pwsh-sandbox` / `sandbox` 三行并替换成自己的实现
+（同名服务不能重复注册，所以原行必须禁用）。
+
+> **为什么推荐 tarball**：`dsh plugin add` 对 npm / git 源会触发
+> `allowBuilds` 构建授权，tarball 是预构建的，跳过这一步。
+
+### 从源码开发
+
+开发或改代码时用 `link:` 指向本地目录，改完重启 DSH 即生效：
+
+```sh
+git clone https://github.com/kennethfan/dsh-sandbox-tune.git
+dsh plugin --profile web add link:$PWD/dsh-sandbox-tune
+```
 
 
 ## 全局配置

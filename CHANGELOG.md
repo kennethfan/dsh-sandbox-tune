@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.4
+
+修正 README 的安装说明。
+
+原来只写了 `link:` 本地路径，那是开发用的，对使用者没用。改为按优先级给出：
+
+1. **tarball**（推荐）—— 预构建，免 `allowBuilds` 构建授权
+2. **git** —— `github:kennethfan/dsh-sandbox-tune`，走源码构建
+3. `link:` —— 移到「从源码开发」小节
+
+两种方式都已实测：tarball 链接返回 200（1011361 字节），
+`git ls-remote` 可访问，tarball 能被 npm 正常安装。
+
+
 ## 0.1.3
 
 修复：会话弹窗把「未覆盖」显示成「没有值」。
