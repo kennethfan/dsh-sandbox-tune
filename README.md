@@ -32,6 +32,7 @@ DSH 的 `workspace-write` 沙箱只允许写「工作区 + `/tmp` + 临时目录
 - [会话级配置](#会话级配置)
 - [命令授权规则](#命令授权规则)
 - [作用域与优先级](#作用域与优先级)
+- [配置热更新](#配置热更新)
 - [安全回退](#安全回退)
 - [平台支持](#平台支持)
 - [验证](#验证)
@@ -127,8 +128,10 @@ dsh plugin --profile web add link:/path/to/dsh-sandbox-tune
 
 ## 全局配置
 
-全局配置对所有会话生效，保存后立即生效（volatile 字段，无需重启）。
-有两种改法：**图形界面**（推荐）或直接改 YAML。
+全局配置对所有会话生效。有两种改法：**图形界面**（推荐）或直接改 YAML。
+
+**两种方式都无需重启 DSH** —— 插件自己监听 `cordis.patch.yml`，改动会自动
+重读并生效（详见[配置热更新](#配置热更新)）。
 
 ### 界面操作
 
@@ -539,6 +542,60 @@ sandbox-tune: 自动批准升权 "go build ./..."（规则 "go build"）
 | `env` | ✅ | ✅ | 合并 |
 | `autoApproveMode` | ✅ | ❌ | — |
 | `autoApproveCommands` | ✅ | ❌ | — |
+
+## 配置热更新
+
+改配置文件后**不需要重启 DSH**。插件会监听 `cordis.patch.yml`，变化时自动
+重读本插件的 config 段并重建配置对象。
+
+### 生效范围
+
+| 改动类型 | 是否热更新 | 说明 |
+|---|---|---|
+| 规则（`autoApproveCommands`） | ✅ | 下一条命令立即生效 |
+| 模式（`mode`） | ✅ | |
+| 预设、目录（`presets` / `sandboxRoots` / `userDirs`） | ✅ | |
+| 开关（`enabled` / `autoDetect`） | ✅ | |
+| 启用/禁用插件、增删 loader 行 | ❌ **需重启** | 涉及加载新模块，本质无法热替换 |
+| 插件源码（`.js`） | ❌ **需重启** | 同上 |
+
+### 失败时保留旧配置
+
+配置写错不会让插件失效：
+
+| 情况 | 行为 |
+|---|---|
+| YAML 语法错误 | 保留上一次有效配置，日志告警 |
+| 字段值非法（如 `mode: bogus`） | 同上 |
+| 该行被删除或禁用 | 不动配置（这种情况本来需要重启） |
+
+这个设计是有意的：一次手误不该让你在不知情的情况下失去沙箱保护。
+
+### 为什么不直接用 DSH 的 HMR
+
+DSH 的 `dsh-hmr` 确实会监听 profile 的 patch 文件，但它构造时有硬性检查：
+
+```js
+if (!this.ctx.loader.internal) throw new Error("--expose-internals is required for HMR service")
+```
+
+而 `dsh web` 默认不带 `--expose-internals`（该参数也不能经 `NODE_OPTIONS` 传入，
+Node 会拒绝）。实测即使手动用 `node --expose-internals bin.js` 启动，配置改动
+仍不触发重载。
+
+与其依赖一条需要改启动参数、且用到 Node 内部 API 的链路，不如插件自己监听：
+只需 `fs.watch`，不碰内部 API，失败也只影响本插件。
+
+### 实现要点
+
+- **监听父目录**而非文件本身：编辑器「原子保存」会 unlink 再 create，
+  盯着文件会丢事件。
+- **内容去重**：`fs.watch` 可能对未改动的内容触发事件，用上次文本比对过滤。
+- **防抖 300ms**：编辑器保存常触发多次事件，合并成一次。
+- **不引入 YAML 库**：`link:` 安装的插件在 Node 模块解析时不回溯到 profile 的
+  `node_modules`，`import 'yaml'` 在真实运行时是 `ERR_MODULE_NOT_FOUND`
+  （实测踩过，启动日志报 `failed to import` 导致插件完全不激活）。
+  改为按缩进扫描 + 自己解析标量，config 段的取值形态有限，够用且零依赖。
 
 ## 安全回退
 

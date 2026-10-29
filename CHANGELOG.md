@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.13.0
+
+改配置文件后**无需重启 DSH** —— 插件自己监听 `cordis.patch.yml`。
+
+### 为什么自己做，不用 DSH 的 HMR
+
+`dsh-hmr` 确实监听 profile 的 patch 文件，但它构造时有硬性检查
+`if (!this.ctx.loader.internal) throw ...`，需要 `--expose-internals`；
+而 `dsh web` 默认不带该参数，且 `NODE_OPTIONS` 会拒绝它。实测手动用
+`node --expose-internals bin.js` 启动后，配置改动仍不触发重载。
+
+改用插件自己 `fs.watch`：不碰 Node 内部 API、不需改启动参数、
+失败也只影响本插件。
+
+### 生效范围
+
+配置值全部热更新（规则、模式、预设、目录、开关）。
+启用/禁用插件与插件源码改动仍需重启 —— 那涉及加载新模块，本质无法热替换。
+
+### 失败保留旧配置
+
+YAML 语法错、字段值非法时保留上一次有效配置并告警。一次手误不该让你
+在不知情的情况下失去沙箱保护。
+
+### 实现要点
+
+- 监听**父目录**而非文件：编辑器原子保存会 unlink 再 create，盯文件会丢事件
+- 内容去重 + 300ms 防抖
+- **不引入 YAML 库**：`link:` 安装的插件在 Node 模块解析时不回溯到 profile
+  的 `node_modules`，`import 'yaml'` 真实运行时是 `ERR_MODULE_NOT_FOUND`
+  （实测踩过，导致插件完全不激活）。改为按缩进扫描 + 自己解析标量
+
+测试：161 项单元（新增 20 项）+ 10 项集成。
+
+
 ## 0.12.0
 
 README 补充插件定位与界面操作说明。
