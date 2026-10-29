@@ -13,6 +13,8 @@ import { test } from 'node:test'
 import {
   APPROVAL_MODES,
   blockingIn,
+  isSafeRedirect,
+  stripSafeRedirects,
   compositionIn,
   decideAutoApproval,
   normalizeCommand,
@@ -302,4 +304,103 @@ test('safe-args：引号内的分隔符会被误拆（只会更严格，不会�
     rules: ['echo'],
   })
   assert.equal(r.allowed, false, '引号内分隔符导致误拆，方向是更严格')
+})
+
+// ---------------------------------------------------------------- 安全重定向
+
+test('isSafeRedirect：fd 复制与 /dev/null 安全', () => {
+  for (const tk of ['2>&1', '1>&2', '>&2', '2>/dev/null', '>/dev/null', '>>/dev/null', '> /dev/null']) {
+    assert.equal(isSafeRedirect(tk), true, `应判为安全: ${tk}`)
+  }
+})
+
+test('isSafeRedirect：写文件与设备不安全', () => {
+  for (const tk of ['> out.txt', '>>log.txt', '> ~/.zshrc', '> /dev/sda', '2>&1 > out.txt', '> /dev/nullx']) {
+    assert.equal(isSafeRedirect(tk), false, `应判为不安全: ${tk}`)
+  }
+})
+
+test('stripSafeRedirects：剥离安全重定向后保留其余文本', () => {
+  assert.equal(stripSafeRedirects('git push 2>&1'), 'git push')
+  assert.equal(stripSafeRedirects('go build > /dev/null'), 'go build')
+  assert.equal(stripSafeRedirects('go build >/dev/null'), 'go build')
+  // 危险重定向必须保留，供后续判定
+  assert.equal(stripSafeRedirects('git push > out.txt'), 'git push > out.txt')
+  // 混合：剥离安全的，留下危险的
+  assert.equal(stripSafeRedirects('git push 2>&1 > out.txt'), 'git push > out.txt')
+})
+
+test('safe-args：2>&1 放行（用户明确要求）', () => {
+  const rules = ['git', 'tail']
+  assert.equal(
+    decideAutoApproval({ command: 'git push 2>&1 | tail -3', mode: 'safe-args', rules }).allowed,
+    true,
+  )
+})
+
+test('safe-args：2>/dev/null 放行', () => {
+  const rules = ['git', 'tail']
+  assert.equal(
+    decideAutoApproval({ command: 'git log 2>/dev/null | tail -3', mode: 'safe-args', rules }).allowed,
+    true,
+  )
+})
+
+test('safe-args：写文件的重定向仍拒绝', () => {
+  const rules = ['git', 'go build']
+  for (const cmd of [
+    'git push > out.txt',
+    'git push >> log.txt',
+    'git push > ~/.zshrc',
+    'go build > /dev/sda',
+  ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      false,
+      `必须拒绝: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：安全重定向与危险重定向混用时拒绝', () => {
+  const rules = ['git']
+  // 2>&1 安全，但后面跟了写文件 → 整体危险
+  assert.equal(
+    decideAutoApproval({ command: 'git push 2>&1 > out.txt', mode: 'safe-args', rules }).allowed,
+    false,
+  )
+})
+
+test('safe-args：借安全重定向夹带其他命令仍拒绝', () => {
+  const rules = ['go build']
+  for (const cmd of [
+    'go build > /dev/null; rm -rf ~',
+    'go build > /dev/null && rm -rf ~',
+    'go build 2>&1 && rm -rf ~',
+  ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      false,
+      `必须拒绝: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：/dev/null 的近似写法不被误判为安全', () => {
+  const rules = ['go build']
+  for (const cmd of ['go build > /dev/nullx', 'go build > /dev/null2', 'go build > /dev/null/../x']) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      false,
+      `必须拒绝: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：输入重定向 < 仍拒绝', () => {
+  const rules = ['git']
+  assert.equal(
+    decideAutoApproval({ command: 'git push < /etc/passwd', mode: 'safe-args', rules }).allowed,
+    false,
+  )
 })
