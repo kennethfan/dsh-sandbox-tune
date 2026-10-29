@@ -559,6 +559,23 @@ sandbox-tune: 自动批准升权 "go build ./..."（规则 "go build"）
 | 启用/禁用插件、增删 loader 行 | ❌ **需重启** | 涉及加载新模块，本质无法热替换 |
 | 插件源码（`.js`） | ❌ **需重启** | 同上 |
 
+### 与设置页的关系
+
+热更新只改**执行器实际使用的配置**，不推送界面更新。设置页的显示值来自
+`entry.fiber.config`，而 `describe()` 每次调用都实时读该对象（无缓存），
+所以**下次打开设置页看到的就是最新值**。
+
+两者互不干扰：
+
+| 操作 | 作用 |
+|---|---|
+| 改文件 | 触发热更新，执行器立即用新值 |
+| 设置页保存 | 写入文件 → 同样触发热更新 |
+
+> **注意并发操作**：如果设置页打开期间有人在外部改了文件，保存时会因
+> revision 不匹配而失败（`SettingsConflictError`）。重新打开设置页再改即可。
+> 这不是缺陷，是乐观并发控制。
+
 ### 失败时保留旧配置
 
 配置写错不会让插件失效：
@@ -596,6 +613,10 @@ Node 会拒绝）。实测即使手动用 `node --expose-internals bin.js` 启�
   `node_modules`，`import 'yaml'` 在真实运行时是 `ERR_MODULE_NOT_FOUND`
   （实测踩过，启动日志报 `failed to import` 导致插件完全不激活）。
   改为按缩进扫描 + 自己解析标量，config 段的取值形态有限，够用且零依赖。
+- **不用 `fiber.update()` 同步配置**：它会走到 `this.restart()` 重启插件
+  （见 cordis 的 `Fiber.update`，waterfall 终态是 restart），而 restart 会
+  销毁并重建 watcher，可能引发重复触发。改为直接赋值 `fiber.config` ——
+  只换引用，`state` 保持 active，不触发任何生命周期。
 
 ## 安全回退
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.13.1
+
+热更新改用直接赋值 `fiber.config`，避免插件 restart。
+
+原实现用 `fiber.update()` 同步运行时配置，但看 cordis 源码后发现它最终会
+调用 `this.restart()`（`Fiber.update` 里 waterfall 的终态是 restart）。
+restart 会销毁并重建 watcher，可能引发重复触发。
+
+改为直接赋值：
+- `describe()` 每次调用都实时读 `entry.fiber.config`（`plainConfig` 无缓存），
+  所以下次打开设置页就能读到新值，不需要推送给前端
+- 直接赋值只换引用，`state` 保持 active，不触发任何生命周期
+
+文档补充「与设置页的关系」小节，说明两者互不干扰，以及并发操作时的
+`SettingsConflictError` 属于乐观并发控制而非缺陷。
+
+实测验证：改配置后进程 PID 不变、无错误日志、端到端测试确认
+`fiber.config.mode` 与 `cacheConfig.mode` 同步更新且 `state` 保持 2。
+
+测试：161 项单元 + 10 项集成。
+
+
 ## 0.13.0
 
 改配置文件后**无需重启 DSH** —— 插件自己监听 `cordis.patch.yml`。
