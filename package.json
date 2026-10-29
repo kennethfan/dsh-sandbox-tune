@@ -13,27 +13,19 @@
     "./client": "./client.js"
   },
   "files": [
-    "CHANGELOG.md",
-    "LICENSE",
-    "README.md",
-    "README.zh.md",
-    "assets",
+    "index.js",
+    "executor.js",
+    "provider.js",
     "client.js",
     "cordis.patch.yml",
-    "executor.js",
-    "index.js",
-    "lib/cache-env.js",
-    "lib/command-approval.js",
-    "lib/command-rules.js",
-    "lib/config-value.js",
-    "lib/executor.js",
-    "lib/provider.js",
-    "lib/session-command.js",
-    "lib/session-config.js",
-    "lib/shared.js",
-    "lib/user-dirs.js",
-    "provider.js",
-    "test/windows.test.mjs"
+    "lib",
+    "examples",
+    "assets",
+    "test",
+    "README.md",
+    "README.zh.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
