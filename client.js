@@ -106,6 +106,13 @@ window.__ModuleLoader__.load({
 .dsc-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .dsc-field-head { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
 .dsc-field-label { font-size: 12px; color: var(--dsw-alias-label-primary, #e6e6e6); }
+.dsc-field-source { margin-left: auto; padding: 0 5px; border-radius: 3px; font-size: 10px; line-height: 1.6; color: var(--dsw-alias-label-tertiary, #888); background: var(--dsw-alias-bg-layer-2, #26272c); }
+.dsc-field-source[data-override=true] { color: var(--dsw-alias-state-business-primary, #4b7bec); background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4b7bec) 14%, transparent); }
+.dsc-fold { display: flex; flex-direction: column; gap: 5px; }
+.dsc-fold-summary { padding: 6px 9px; border: 1px solid var(--dsw-alias-border-l1, #33343a); border-radius: 7px; background: var(--dsw-alias-bg-layer-2, #26272c); }
+.dsc-fold-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--dsw-alias-label-secondary, #999); }
+.dsc-fold-toggle { align-self: flex-start; background: transparent; border: 0; padding: 0; color: var(--dsw-alias-state-business-primary, #4b7bec); cursor: pointer; font: inherit; font-size: 11px; }
+.dsc-fold-toggle:hover { text-decoration: underline; }
 .dsc-field-key { font-size: 10px; padding: 0 4px; border-radius: 3px; color: var(--dsw-alias-label-tertiary, #888); background: var(--dsw-alias-bg-layer-2, #26272c); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .dsc-modal-footer { display: flex; align-items: center; gap: 10px; width: 100%; }
 .dsc-modal-footer-left { display: flex; gap: 8px; }
@@ -738,6 +745,96 @@ window.__ModuleLoader__.load({
       }, [cacheKey])
 
       /**
+       * 全局配置值：用于显示「本会话没覆盖时继承什么」。
+       *
+       * 弹窗里的 draft 只记录**本会话显式覆盖的值**，所以没覆盖的字段
+       * 此前显示为空 —— 看起来像「什么都没有」，实际是继承了全局值。
+       * 这里把全局值读出来，让每个字段都能显示「当前生效值」。
+       */
+      const [globalValues, setGlobalValues] = useState({})
+
+      const loadGlobal = useCallback(async () => {
+        try {
+          const described = await ctx.remote?.settings?.describe()
+          if (described?.error) return
+          const namespaces = described?.value?.namespaces ?? []
+          const ex = namespaces.find((item) => item.ns === 'sandbox-tune-bash')
+          const pv = namespaces.find((item) => item.ns === 'sandbox-tune-provider')
+          // 两个命名空间的字段合并展示：执行器管缓存与授权规则，
+          // provider 管目录与探测。会话级字段是它们并集的子集。
+          setGlobalValues({ ...(pv?.value ?? {}), ...(ex?.value ?? {}) })
+        } catch {
+          // 读不到全局值不影响操作，只是少了「继承自全局」的提示。
+        }
+      }, [ctx])
+
+      // 打开弹窗时读一次全局值。
+      useEffect(() => {
+        if (open) loadGlobal()
+      }, [open, loadGlobal])
+
+      /**
+       * 打开弹窗时拉取全局配置，供「继承值」显示。
+       *
+       * 两个命名空间都要读：执行器卡片管 mode/cacheRoot/presets/env，
+       * provider 卡片管 autoDetect/userDirs/sandboxRoots。
+       */
+      useEffect(() => {
+        if (!open) return undefined
+        let cancelled = false
+        const load = async () => {
+          const settings = ctx.remote?.settings
+          if (!settings?.describe) return
+          try {
+            const described = await settings.describe()
+            if (cancelled || described?.error) return
+            const rows = described?.value?.namespaces ?? []
+            /** @type {Record<string, unknown>} */
+            const merged = {}
+            for (const ns of ['sandbox-tune-bash', 'sandbox-tune-provider']) {
+              const row = rows.find(item => item.ns === ns)
+              if (row?.value) Object.assign(merged, row.value)
+            }
+            if (!cancelled) setGlobalValues(merged)
+          } catch {
+            // 读不到全局值就只显示覆盖值：退化为原行为，不影响设置。
+          }
+        }
+        load()
+        return () => { cancelled = true }
+      }, [open, ctx])
+
+      /**
+       * 某字段的显示值：有会话覆盖就用覆盖值，否则用全局值。
+       *
+       * @param {string} key - 字段名。
+       * @returns {unknown} 显示值。
+       */
+      const valueOfField = useCallback(
+        (key) => (Object.hasOwn(draft, key) ? draft[key] : globalValues[key]),
+        [draft, globalValues],
+      )
+
+      /**
+       * 该字段是否来自会话覆盖（而非继承全局）。
+       *
+       * @param {string} key - 字段名。
+       * @returns {boolean} 有覆盖返回 true。
+       */
+      const isOverridden = useCallback((key) => Object.hasOwn(draft, key), [draft])
+
+      /**
+       * 哪些「继承自全局」的列表字段被展开了。
+       *
+       * 全局的 presets / userDirs 可能有十几项，全量渲染会把弹窗撑得很长，
+       * 而多数时候用户只是想看「本会话改了什么」。所以继承值的列表默认
+       * 折叠成一行摘要，点了才展开。
+       *
+       * 会话自己覆盖的列表不折叠 —— 那是用户刚设的，需要看得见。
+       */
+      const [expanded, setExpanded] = useState({})
+
+      /**
        * 执行一条命令。
        *
        * 命令结果以 flow 节点渲染，不回传文本；这里只关心是否被接收。
@@ -855,6 +952,16 @@ window.__ModuleLoader__.load({
                   { className: 'dsc-field-head' },
                   h('span', { className: 'dsc-field-label' }, field.label),
                   h('code', { className: 'dsc-field-key' }, field.key),
+                  // 标出来源：有覆盖是「本会话」，否则是「继承」。
+                  // 不标的话，用户看不出当前值到底是自己设的还是全局的。
+                  h(
+                    'span',
+                    {
+                      className: 'dsc-field-source',
+                      'data-override': String(isOverridden(field.key)),
+                    },
+                    isOverridden(field.key) ? '本会话' : '继承',
+                  ),
                 ),
                 field.kind === 'enum' || field.kind === 'bool'
                   ? h(
@@ -867,7 +974,7 @@ window.__ModuleLoader__.load({
                             key: option,
                             type: 'button',
                             className: 'dsc-seg-btn',
-                            'data-active': String((draft[field.key] ?? '') === option),
+                            'data-active': String(String(valueOfField(field.key) ?? '') === option),
                             disabled: busy,
                             onClick: () => {
                               setDraft(d => ({ ...d, [field.key]: option }))
@@ -879,24 +986,70 @@ window.__ModuleLoader__.load({
                       ),
                     )
                   : field.kind === 'list'
-                    ? h(ListEditor, {
-                        field,
-                        items: draft[field.key],
-                        busy,
-                        placeholder: field.placeholder,
-                        // 列表编辑器的每次增删都直接提交，不做本地暂存：
-                        // 界面显示必须与真实配置一致。
-                        onCommit: next => {
-                          setDraft(d => ({ ...d, [field.key]: next }))
-                          submitField(field, next)
-                        },
-                      })
+                    ? (() => {
+                        const items = valueOfField(field.key)
+                        const list = Array.isArray(items) ? items : []
+                        const overridden = isOverridden(field.key)
+                        const isOpen = expanded[field.key] === true
+                        // 继承来的长列表默认折叠：只显示摘要 + 展开按钮。
+                        // 空列表没有折叠的必要，直接显示「暂无条目」。
+                        if (!overridden && list.length > 2 && !isOpen) {
+                          return h(
+                            'div',
+                            { className: 'dsc-fold' },
+                            h(
+                              'div',
+                              { className: 'dsc-fold-summary' },
+                              h('code', { className: 'dsc-fold-text' }, list.join(', ')),
+                            ),
+                            h(
+                              'button',
+                              {
+                                type: 'button',
+                                className: 'dsc-fold-toggle',
+                                onClick: () => setExpanded((prev) => ({ ...prev, [field.key]: true })),
+                              },
+                              `展开 ${list.length} 项`,
+                            ),
+                          )
+                        }
+                        // 继承值展开后给一个「收起」，否则只能靠重开弹窗复原。
+                        // 会话覆盖的列表不折叠，也就不需要收起。
+                        const collapsible = !overridden && list.length > 2
+                        return h(
+                          'div',
+                          { className: 'dsc-fold' },
+                          collapsible && isOpen
+                            ? h(
+                                'button',
+                                {
+                                  type: 'button',
+                                  className: 'dsc-fold-toggle',
+                                  onClick: () => setExpanded((prev) => ({ ...prev, [field.key]: false })),
+                                },
+                                '收起',
+                              )
+                            : null,
+                          h(ListEditor, {
+                            field,
+                            items: list,
+                            busy,
+                            placeholder: field.placeholder,
+                            // 列表编辑器的每次增删都直接提交，不做本地暂存：
+                            // 界面显示必须与真实配置一致。
+                            onCommit: next => {
+                              setDraft((d) => ({ ...d, [field.key]: next }))
+                              submitField(field, next)
+                            },
+                          }),
+                        )
+                      })()
                     : h('input', {
                         className: 'dsc-input',
                         type: 'text',
                         disabled: busy,
                         placeholder: field.placeholder ?? '',
-                        value: (draft[field.key] ?? '').toString(),
+                        value: (valueOfField(field.key) ?? '').toString(),
                         onChange: event => setDraft(d => ({ ...d, [field.key]: event.target.value })),
                         onKeyDown: event => {
                           if (event.key === 'Enter') submitField(field, event.target.value)
