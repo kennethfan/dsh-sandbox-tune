@@ -691,7 +691,51 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = useState(false)
       const [status, setStatus] = useState(null)
       const [busy, setBusy] = useState(false)
-      const [draft, setDraft] = useState({})
+
+      // 会话级覆盖的界面缓存。
+      //
+      // 为什么需要它：覆盖表存在 Host 进程内存里（按 sessionId 键），
+      // 前端没有任何接口能读回来 —— `command()` 只返回 {matched}，
+      // 结果以 flow 节点渲染；`settings.describe` 返回的是全局值。
+      // 而组件在切换会话时会重新挂载，draft 会重置为空，
+      // 于是「切走再切回」看起来像配置丢了。
+      //
+      // 用 sessionStorage 按 sessionId 缓存，让同一浏览器内切换会话能正确显示。
+      // **局限**：这不是真实状态同步 —— 换设备、清缓存、或从别处改了配置时，
+      // 界面显示的是上次在此浏览器里设置的值。真实生效值始终以 Host 为准，
+      // 「查看当前」会打印真实值供核对。
+      const cacheKey = `sandbox-tune:${sessionId}`
+      const readCache = () => {
+        try {
+          const raw = globalThis.sessionStorage?.getItem(cacheKey)
+          return raw === null || raw === undefined ? {} : JSON.parse(raw)
+        } catch {
+          return {}
+        }
+      }
+      const writeCache = (next) => {
+        try {
+          globalThis.sessionStorage?.setItem(cacheKey, JSON.stringify(next))
+        } catch {
+          // 隐私模式 / 配额满时忽略：缓存只是显示优化，不该让操作失败。
+        }
+      }
+
+      const [draft, setDraftState] = useState(readCache)
+
+      // 包装 setDraft：每次写入都同步缓存，避免漏掉某个调用点。
+      const setDraft = useCallback((valueOrUpdater) => {
+        setDraftState((prev) => {
+          const next = typeof valueOrUpdater === 'function' ? valueOrUpdater(prev) : valueOrUpdater
+          writeCache(next)
+          return next
+        })
+      }, [cacheKey])
+
+      // 切换会话时（sessionId 变化）重新读缓存。
+      useEffect(() => {
+        setDraftState(readCache())
+      }, [cacheKey])
 
       /**
        * 执行一条命令。
@@ -767,7 +811,7 @@ window.__ModuleLoader__.load({
             onClose: close,
             title: '沙箱调优 · 本会话',
             closeLabel: '关闭',
-            description: '只影响当前会话。列表字段（预设 / 目录 / 环境变量）会叠加到全局之上，不会替换；标量字段（模式 / 缓存目录）会替换全局值。清除后回到全局。',
+            description: '只影响当前会话。列表字段（预设 / 目录 / 环境变量）会叠加到全局之上，不会替换；标量字段（模式 / 缓存目录）会替换全局值。清除后回到全局。界面显示的是本浏览器最近一次设置的值，重启 DSH 后覆盖会失效 —— 以「查看当前」打印的结果为准。',
             className: 'dsc-modal',
             footer: h(
               'div',
