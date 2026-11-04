@@ -404,3 +404,32 @@ test('safe-args：输入重定向 < 仍拒绝', () => {
     false,
   )
 })
+
+test('safe-args：安全重定向紧跟分隔符（无空格）也放行', () => {
+  const rules = ['git', 'tail', 'head', 'echo']
+  // shell 允许 `2>&1|tail` 这种紧贴写法。只认空白会把整条判成含危险重定向，
+  // 导致 `git push 2>&1|tail -3` 被误拒 —— 实测踩过。
+  for (const cmd of [
+    'git push 2>&1|tail -3',
+    'git push 2>&1;echo ok',
+    'git push 2>&1&&echo ok',
+    'git log 2>/dev/null|head -3',
+  ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      true,
+      `应放行: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：紧跟分隔符时仍拒绝写文件的重定向', () => {
+  const rules = ['git', 'tail']
+  for (const cmd of ['git push > out.txt|tail -3', 'git push > /dev/nullx|tail']) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      false,
+      `必须拒绝: ${cmd}`,
+    )
+  }
+})
