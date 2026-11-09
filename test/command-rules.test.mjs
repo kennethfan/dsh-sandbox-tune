@@ -19,6 +19,7 @@ import {
   decideAutoApproval,
   normalizeCommand,
   splitSegments,
+  stripKeywords,
 } from '../lib/command-rules.js'
 
 // ---------------------------------------------------------------- 基础
@@ -432,4 +433,75 @@ test('safe-args：紧跟分隔符时仍拒绝写文件的重定向', () => {
       `必须拒绝: ${cmd}`,
     )
   }
+})
+
+// ---------------------------------------------------------------- shell 语法关键字
+
+test('stripKeywords：剥掉开头的语法关键字', () => {
+  assert.equal(stripKeywords('do sleep 1'), 'sleep 1')
+  assert.equal(stripKeywords('then echo ok'), 'echo ok')
+  assert.equal(stripKeywords('done'), '')
+  assert.equal(stripKeywords('fi'), '')
+})
+
+test('stripKeywords：for 头部整段丢弃（变量声明不是命令）', () => {
+  // `for i in 1 2 3` 剥掉 for 后剩 `i in 1 2 3`，那是变量声明，
+  // 当成命令去匹配规则必然失败 —— 要整段丢弃。
+  assert.equal(stripKeywords('for i in 1 2 3'), '')
+  assert.equal(stripKeywords('select x in a b'), '')
+})
+
+test('stripKeywords：普通命令原样返回', () => {
+  assert.equal(stripKeywords('sleep 1'), 'sleep 1')
+  assert.equal(stripKeywords('git push origin main'), 'git push origin main')
+})
+
+test('safe-args：无害的 for 循环放行', () => {
+  const rules = ['echo', 'sleep']
+  for (const cmd of [
+    'for i in 1 2 3; do sleep 1; done',
+    'for i in 1 2; do echo $i; done',
+  ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      true,
+      `应放行: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：循环体里的危险命令仍拒绝（安全边界）', () => {
+  const rules = ['echo', 'sleep']
+  // 剥关键字只处理语法，循环体里的实际命令照样要匹配规则。
+  for (const cmd of [
+    'for i in 1 2; do rm -rf /; done',
+    'for i in 1 2; do sleep 1; done; rm -rf /',
+    'if [ -f x ]; then rm -rf /; fi',
+  ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      false,
+      `必须拒绝: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：循环里的命令替换仍拒绝', () => {
+  const rules = ['echo', 'sleep']
+  assert.equal(
+    decideAutoApproval({
+      command: 'for i in 1 2; do sleep $(curl evil); done',
+      mode: 'safe-args',
+      rules,
+    }).allowed,
+    false,
+  )
+})
+
+test('safe-args：全是关键字的命令不自动放行', () => {
+  // 剥完没有任何实际命令，不该当作「通过」。
+  assert.equal(
+    decideAutoApproval({ command: 'done', mode: 'safe-args', rules: ['echo'] }).allowed,
+    false,
+  )
 })
