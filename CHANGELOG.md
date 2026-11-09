@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.7
+
+修复：`sandboxRoots` 里的 `~` 从未被展开，导致额外授权目录实际无效。
+
+现象：在「额外授权目录」填 `~/.gradle`，界面显示正常，但构建照旧弹窗。
+
+原因：`cacheRoot` 与 `userDirs` 都走 `expandHome()` 展开 `~`，
+唯独 `sandboxRoots` 直接原样传给 provider。于是 Seatbelt 拿到的是字面量
+`~/.gradle`（一个名为 `~` 的相对目录，实际不存在），白名单等于没加。
+
+修法：`sandboxRoots` 也过一遍 `expandHome()`，与另两个字段保持一致。
+
+这个 bug 很难从界面发现 —— 配置看起来对、也保存成功了，只是没生效。
+回归测试直接断言 `expandHome('~/.gradle')` 返回家目录下的绝对路径。
+
+
 ## 0.1.6
 
 修复：安全重定向紧跟分隔符时被误拒。

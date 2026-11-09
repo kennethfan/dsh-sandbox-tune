@@ -479,3 +479,18 @@ test('confine：userDirs 为空时不授权任何用户目录', async () => {
   assert.deepEqual(confined.argv, baseArgv)
   reset()
 })
+
+// ---------------------------------------------------------------- sandboxRoots 展开
+
+test('sandboxRoots 的 ~ 会被展开成绝对路径', async () => {
+  const { homedir } = await import('node:os')
+  const { expandHome } = await import('../lib/cache-env.js')
+  // provider 里 sandboxRoots 走的就是这个函数。不展开的话，
+  // 传给 Seatbelt 的是字面量 `~/.gradle`（实际不存在的相对目录），
+  // 白名单等于没加 —— 用户会以为配了但弹窗照旧。
+  assert.equal(expandHome('~/.gradle'), `${homedir()}/.gradle`)
+  assert.equal(expandHome('~'), homedir())
+  // 绝对路径原样返回
+  assert.equal(expandHome('/Users/x/.gradle'), '/Users/x/.gradle')
+  assert.equal(expandHome('relative/path'), 'relative/path')
+})
