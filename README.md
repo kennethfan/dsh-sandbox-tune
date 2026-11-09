@@ -36,6 +36,7 @@ DSH 的 `workspace-write` 沙箱只允许写「工作区 + `/tmp` + 临时目录
 - [安全回退](#安全回退)
 - [平台支持](#平台支持)
 - [验证](#验证)
+- [常见问题](#常见问题)
 - [已知限制](#已知限制)
 
 ---
@@ -768,6 +769,88 @@ node test/integration.mjs
 集成测试最后一项会在真实沙箱里跑 `go build`。**如果在 DSH 会话里执行**，
 测试进程自身已被 Seatbelt 限制，无法嵌套 `sandbox-exec`，该项会标记 SKIP
 并说明原因 —— 请在普通终端重跑。
+
+## 常见问题
+
+### `git push` 一直弹窗，但规则里明明有 `git`
+
+**规则管的是「要不要升权」，不是「凭据能不能读」。**
+
+HTTPS remote 的凭据存在 macOS 钥匙串里（mach 服务），沙箱会拦截这类访问：
+
+```sh
+git credential fill
+# → fatal: could not read Username for 'https://github.com': Device not configured
+```
+
+而命令授权只在审批原因是「沙箱升权」（`escalate sandbox to ...`）时才介入。
+凭据读取失败不是文件沙箱拒绝，**不产生这类升权请求**，规则没机会触发。
+
+**解法：改用 SSH remote。**
+
+```sh
+git remote set-url origin git@github.com:<owner>/<repo>.git
+```
+
+因为 `~/.ssh/id_rsa` 是普通文件，`workspace-write` 模式下读操作不受限，
+SSH 认证能正常完成。
+
+验证（沙箱内，不提权）：
+
+```sh
+ssh -T git@github.com          # → Hi <user>! You've successfully authenticated
+git fetch origin               # → exit 0
+```
+
+> 把 `~/.ssh` 或钥匙串路径加进 `sandboxRoots` **没用** —— mach 服务不是文件
+> 路径，白名单管不到。
+
+### `gh` 命令报「token invalid」或提示未登录
+
+同源问题：`gh` 也把 token 存在钥匙串。沙箱内读不到，于是误报未登录。
+
+**不要重复登录**（token 本身是好的）。要么给这次调用提权，要么改用
+`GH_TOKEN` 环境变量传入。
+
+### 额外授权目录填了 `~/xxx` 却不生效
+
+v0.1.7 之前 `sandboxRoots` 不展开 `~`，`~/.gradle` 会被当成一个名为 `~`
+的相对目录（不存在），白名单等于没加。
+
+**升级到 v0.1.7 或更新**即可。判断是否踩到这个坑：
+
+```js
+// 挂载 provider 后打印 extraRoots
+// 修复前: ["~/.gradle"]
+// 修复后: ["/Users/kenneth/.gradle"]
+```
+
+同类问题：`cacheRoot` 与 `userDirs` 一直有展开，只有 `sandboxRoots` 漏了。
+
+### 改配置文件后没生效
+
+| 改的是什么 | 需要什么 |
+|---|---|
+| 配置文件（`cordis.patch.yml`） | 热更新已支持，1 秒内生效 |
+| 插件源码（`.js`） | **重启 DSH** |
+| 启用/禁用插件 | **重启 DSH** |
+
+若配置文件改了但没生效，先确认进程启动时间晚于文件修改时间：
+
+```sh
+ps -o lstart= -p $(lsof -nP -iTCP:3080 -sTCP:LISTEN | tail -1 | awk '{print $2}')
+stat -f "%Sm" cordis.patch.yml
+```
+
+### 设置页改了配置但保存失败
+
+打开设置页期间外部改了同一文件 → revision 不匹配 → `SettingsConflictError`。
+**重新打开设置页再改**即可。这是乐观并发控制，不是缺陷。
+
+### `go mod tidy` / `go get` 仍失败
+
+它们要写 `GOMODCACHE`，而依赖仓库**永不重定向**（指到空目录会让构建找不到
+模块）。需要切到 `in-place` 模式，或单独放行一次。
 
 ## 已知限制
 
