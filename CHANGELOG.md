@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.11
+
+内置放行 `break` / `continue`。
+
+两者都是**纯 shell 内建**（`type break` 显示 "shell builtin"，没有独立可执行
+文件），只改变循环控制流，不碰文件系统、不联网、不执行外部程序。
+
+但 `for i in 1 5; do sleep 1; [ $i = 3 ] && break; done` 这类写法很常见，
+不给它们配规则就会整条被拒 —— 而它们本身没有任何副作用。
+
+加入 `HARMLESS_COMMANDS` 白名单，与 `true` / `false` / `:` 同等处理。
+
+安全边界不变：`break; rm -rf /`、`continue && rm -rf /` 依然拒绝。
+
+
 ## 0.1.10
 
 命令判定的一轮系统性修复。前四轮改动都没单独发布过，合并为这一版。

@@ -670,3 +670,36 @@ test('safe-args：嵌套过深的命令替换拒绝', () => {
     false,
   )
 })
+
+test('isHarmless：break / continue 也内置放行', () => {
+  // 纯 shell 内建，只改变循环控制流，不碰文件系统。
+  for (const s of ['break', 'continue', 'break 2', 'continue 1']) {
+    assert.equal(isHarmless(s), true, `应判为无害: ${s}`)
+  }
+})
+
+test('safe-args：带 break 的循环放行', () => {
+  const rules = ['echo', 'sleep', 'true']
+  for (const cmd of [
+    'for i in 1 2; do echo $i; break; done',
+    'for i in 1 2; do continue; done',
+    'for i in 1 5; do sleep 1; [ $i = 3 ] && break; done',
+  ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      true,
+      `应放行: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：break 不连带放行其他命令', () => {
+  const rules = ['echo', 'sleep']
+  for (const cmd of ['break; rm -rf /', 'continue && rm -rf /', 'for i in 1; do break; done; rm -rf /']) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      false,
+      `必须拒绝: ${cmd}`,
+    )
+  }
+})
