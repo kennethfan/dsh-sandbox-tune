@@ -25,6 +25,7 @@ import {
   normalizeCommand,
   splitSegments,
   stripCaseStructure,
+  stripGrouping,
   stripKeywords,
 } from '../lib/command-rules.js'
 
@@ -739,6 +740,67 @@ test('safe-args：case 分支里的危险命令仍拒绝', () => {
     'case $x in a) rm -rf / ;; esac',
     'case $x in a) echo A ;; esac; rm -rf /',
   ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      false,
+      `必须拒绝: ${cmd}`,
+    )
+  }
+})
+
+// ---------------------------------------------------------------- 分组结构
+
+test('stripGrouping：剥掉函数定义 / 花括号组 / 子 shell 外壳', () => {
+  assert.equal(stripGrouping('f() { echo hi'), 'echo hi')
+  assert.equal(stripGrouping('{ echo hi'), 'echo hi')
+  assert.equal(stripGrouping('( echo hi )'), 'echo hi')
+  // 纯外壳剥完为空
+  assert.equal(stripGrouping('}'), '')
+})
+
+test('stripGrouping：不误剥数组赋值', () => {
+  // `a=(1 2 3)` 的括号是数组字面量，不是子 shell
+  assert.equal(stripGrouping('a=(1 2 3)'), 'a=(1 2 3)')
+})
+
+test('safe-args：函数定义 / 子 shell / 花括号组放行', () => {
+  const rules = ['echo', 'sleep']
+  for (const cmd of [
+    'f() { echo hi; }',
+    '( echo hi )',
+    '{ echo hi; }',
+    '( echo a ) && { echo b; }',
+  ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      true,
+      `应放行: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：算术展开 $(( )) 放行（不是命令替换）', () => {
+  const rules = ['echo']
+  // `$((1+2))` 若被当成命令替换，会去校验 `(1+2)` 而误拒。
+  for (const cmd of ['echo $((1+2))', 'echo $(( (1+2)*3 ))']) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      true,
+      `应放行: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：数组赋值放行', () => {
+  assert.equal(
+    decideAutoApproval({ command: 'a=(1 2 3)', mode: 'safe-args', rules: ['echo'] }).allowed,
+    true,
+  )
+})
+
+test('safe-args：分组里的危险命令仍拒绝', () => {
+  const rules = ['echo']
+  for (const cmd of ['f() { rm -rf /; }', '( rm -rf / )', '{ rm -rf /; }', 'a=(1 2 3); rm -rf /']) {
     assert.equal(
       decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
       false,
