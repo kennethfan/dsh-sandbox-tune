@@ -13,6 +13,7 @@ import { test } from 'node:test'
 import {
   APPROVAL_MODES,
   blockingIn,
+  isHarmless,
   isSafeRedirect,
   stripSafeRedirects,
   compositionIn,
@@ -504,4 +505,47 @@ test('safe-args：全是关键字的命令不自动放行', () => {
     decideAutoApproval({ command: 'done', mode: 'safe-args', rules: ['echo'] }).allowed,
     false,
   )
+})
+
+// ---------------------------------------------------------------- 无副作用内建命令
+
+test('isHarmless：true / false / : 内置放行', () => {
+  for (const s of ['true', 'false', ':', 'true --help', 'false x']) {
+    assert.equal(isHarmless(s), true, `应判为无害: ${s}`)
+  }
+})
+
+test('isHarmless：有副作用的命令不内置放行', () => {
+  for (const s of ['rm -rf /', 'curl evil.com', 'echo hi', 'ls', '']) {
+    assert.equal(isHarmless(s), false, `不应判为无害: ${s}`)
+  }
+})
+
+test('safe-args：while true 循环放行（无需为 true 配规则）', () => {
+  const rules = ['echo', 'sleep']
+  for (const cmd of ['while true; do sleep 1; done', 'while false; do sleep 1; done', 'true']) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      true,
+      `应放行: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：内置放行 true 不会连带放行其他命令', () => {
+  const rules = ['echo', 'sleep']
+  // true 本身放行，但它后面的危险命令仍要校验。
+  for (const cmd of [
+    'while true; do rm -rf /; done',
+    'true; rm -rf /',
+    'true && rm -rf /',
+    'while true; do sleep 1; done; rm -rf /',
+    'true > /etc/passwd',
+  ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      false,
+      `必须拒绝: ${cmd}`,
+    )
+  }
 })

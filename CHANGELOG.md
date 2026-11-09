@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.11
+
+内置放行无副作用的 shell 内建命令 `true` / `false` / `:`。
+
+背景：`while true; do sleep 1; done` 这类循环里，`true` 是命令（shell 内建，
+也有 /usr/bin/true），不在规则里就被拒。但它只返回退出码，不读写文件、
+不联网、不执行外部程序 —— 要求用户为它单独配一条规则纯属噪音。
+
+修法：新增 `HARMLESS_COMMANDS` 白名单，判定时直接放行。
+
+刻意保持极短：凡是能读写文件、能执行子进程、能联网的，一律不在其中。
+`true` 的参数也不改变语义（`true --help` 依然返回 0）。
+
+**安全边界不变**：只放行命令本身，不影响其他校验 ——
+`while true; do rm -rf /; done`、`true; rm -rf /`、`true > /etc/passwd`
+依然拒绝。
+
+
 ## 0.1.10
 
 修复：shell 语法关键字被当成命令去匹配规则，导致无害脚本被拒。
