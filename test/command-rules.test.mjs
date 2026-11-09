@@ -24,6 +24,7 @@ import {
   decideAutoApproval,
   normalizeCommand,
   splitSegments,
+  stripCaseStructure,
   stripKeywords,
 } from '../lib/command-rules.js'
 
@@ -696,6 +697,48 @@ test('safe-args：带 break 的循环放行', () => {
 test('safe-args：break 不连带放行其他命令', () => {
   const rules = ['echo', 'sleep']
   for (const cmd of ['break; rm -rf /', 'continue && rm -rf /', 'for i in 1; do break; done; rm -rf /']) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      false,
+      `必须拒绝: ${cmd}`,
+    )
+  }
+})
+
+// ---------------------------------------------------------------- case 语句
+
+test('stripCaseStructure：剥掉 case 头部与模式标签', () => {
+  // `case x in a) echo A` → `echo A`
+  assert.equal(stripCaseStructure('case x in a) echo A'), 'echo A')
+  // 纯模式标签 + 命令
+  assert.equal(stripCaseStructure('b) echo B'), 'echo B')
+  assert.equal(stripCaseStructure('*) echo other'), 'echo other')
+  // 多模式
+  assert.equal(stripCaseStructure('a|b) echo AB'), 'echo AB')
+  // 纯结构部分剥完为空
+  assert.equal(stripCaseStructure('case x in'), '')
+})
+
+test('safe-args：case 语句放行', () => {
+  const rules = ['echo']
+  for (const cmd of [
+    'case $x in a) echo A ;; b) echo B ;; esac',
+    'case $1 in start) echo starting ;; *) echo unknown ;; esac',
+  ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      true,
+      `应放行: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：case 分支里的危险命令仍拒绝', () => {
+  const rules = ['echo']
+  for (const cmd of [
+    'case $x in a) rm -rf / ;; esac',
+    'case $x in a) echo A ;; esac; rm -rf /',
+  ]) {
     assert.equal(
       decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
       false,

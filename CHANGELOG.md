@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.12
+
+`safe-args` 支持 `case` 语句。
+
+原来 `case $x in a) echo A ;; esac` 会被拒，因为拆段后得到
+`case $x in a) echo A`、`b) echo B`、`esac`，其中 `case ... in` 与
+模式标签 `a)` `b|c)` `*)` 都不是命令，却拿去匹配规则。
+
+三处改动：
+
+1. **词法器识别 `;;`**：它是 case 的分支分隔符，之前被拆成两个 `;`，
+   分支边界丢失。`;;` 必须排在 `;` 之前匹配。
+2. **`stripCaseStructure()`**：剥掉 `case VAR in` 头部与模式标签，
+   分支体里的命令留下继续校验。
+3. **剥离顺序**：先剥 case 结构、再剥语法关键字。反过来的话
+   `stripKeywords` 会先把 `case` 这个词剥掉，导致 `^case\s+` 匹配不上，
+   剩下的 `$x in a) echo A` 就被当成命令了（这个顺序错误实际踩到了）。
+
+安全边界不变：`case $x in a) rm -rf / ;; esac` 依然拒绝。
+
+
 ## 0.1.11
 
 内置放行 `break` / `continue`。
