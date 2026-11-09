@@ -10,6 +10,7 @@ import { test } from 'node:test'
 
 import {
   COMMAND_NAME,
+  mergedConfig,
   parseCommandInput,
   registerSessionCommand,
   renderStatus,
@@ -193,4 +194,49 @@ test('命令 handler：无会话时返回 error', async () => {
   registerSessionCommand(ctx, { config: {}, store: new Map() })
   const result = await ctx.registered[0].handler({ agent: {}, rawInput: '' })
   assert.equal(result.kind, 'error')
+})
+
+// ---------------------------------------------------------------- 跨命名空间合并
+
+test('mergedConfig：补齐 provider 专属字段', () => {
+  const exec = { mode: 'in-place', enabled: true, presets: ['a'] }
+  const prov = { sandboxRoots: ['~/.gradle'], autoDetect: true, userDirs: ['user-cache'], enabled: false, presets: ['b'] }
+  const merged = mergedConfig(exec, prov)
+  // provider 专属三个字段要补进来
+  assert.deepEqual(merged.sandboxRoots, ['~/.gradle'])
+  assert.equal(merged.autoDetect, true)
+  assert.deepEqual(merged.userDirs, ['user-cache'])
+  // 两边都有的字段以执行器为准（/sandbox-tune 能改的、resolveSetting 实际读的）
+  assert.equal(merged.enabled, true)
+  assert.deepEqual(merged.presets, ['a'])
+})
+
+test('mergedConfig：provider 缺失时原样返回', () => {
+  const exec = { mode: 'redirect' }
+  assert.equal(mergedConfig(exec, null), exec)
+  assert.equal(mergedConfig(exec, undefined), exec)
+})
+
+test('renderStatus：合并后不再显示「(未设置)」', () => {
+  const exec = { mode: 'in-place', enabled: true }
+  const prov = { sandboxRoots: ['~/.gradle'], autoDetect: true, userDirs: ['user-cache'] }
+  const text = renderStatus({ config: mergedConfig(exec, prov), overrides: {} })
+  assert.ok(text.includes('sandboxRoots'), '应列出 sandboxRoots')
+  assert.ok(!text.includes('sandboxRoots: (未设置)'), 'sandboxRoots 不应是未设置')
+  assert.ok(text.includes('~/.gradle'), '应显示实际值')
+})
+
+test('命令 handler：读到 provider 配置后显示真实值', async () => {
+  const { shared, resetShared } = await import('../lib/shared.js')
+  resetShared()
+  // 模拟 provider 已挂载并写入配置
+  shared.providerConfig = { sandboxRoots: ['~/.gradle'], autoDetect: true, userDirs: ['user-cache'] }
+
+  const ctx = fakeCtx()
+  registerSessionCommand(ctx, { config: { mode: 'in-place', enabled: true }, store: new Map() })
+  const result = await ctx.registered[0].handler({ agent: fakeAgent(), rawInput: '' })
+  assert.equal(result.kind, 'success')
+  assert.ok(result.text.includes('~/.gradle'), '应从 provider 补齐 sandboxRoots')
+  assert.ok(!result.text.includes('sandboxRoots: (未设置)'))
+  resetShared()
 })

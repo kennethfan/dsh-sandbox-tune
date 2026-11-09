@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.9
+
+修复：`/sandbox-tune` 把 provider 的三个字段显示成「(未设置)」。
+
+现象：明明配了 `sandboxRoots: [~/.gradle, ~/.android]`，`/sandbox-tune`
+却显示 `sandboxRoots: (未设置)`，`autoDetect` 与 `userDirs` 同样。
+
+原因：插件分两个 loader 行 —— `mode` / `cacheRoot` / `presets` 等在执行器
+（`sandbox-tune-bash`），而 `sandboxRoots` / `autoDetect` / `userDirs` 在
+provider（`sandbox-tune-provider`）。命令注册在执行器里，只拿到执行器的
+config，于是这三个字段读不到。
+
+修法：provider 在构造与热更新后把 config 写入 `shared.providerConfig`，
+命令 handler 在**调用时**读它并合并展示（此时 provider 必然已挂载）。
+合并以执行器为主，只从 provider 补齐那三个字段 —— `presets` / `enabled`
+两边都可能有，执行器的才是 `resolveSetting` 实际读的。
+
+配置本身一直是生效的（实测 `~/.gradle` 可写），只是显示不全。
+
+
 ## 0.1.8
 
 README 新增「常见问题」章节，把踩过的坑集中写下来。
