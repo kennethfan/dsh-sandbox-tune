@@ -303,15 +303,36 @@ test('safe-args：规则里的多词命令也能在分段中匹配', () => {
   )
 })
 
-test('safe-args：引号内的分隔符会被误拆（只会更严格，不会更宽松）', () => {
-  // echo "a && b" 会被拆成 ['echo "a', 'b"']，第二段不匹配规则 → 拒绝。
-  // 这是保守方向的误判：拒绝本来无害的命令，但绝不会放行有害的。
-  const r = decideAutoApproval({
-    command: 'echo "a && b"',
-    mode: 'safe-args',
-    rules: ['echo'],
-  })
-  assert.equal(r.allowed, false, '引号内分隔符导致误拆，方向是更严格')
+test('safe-args：引号内的分隔符不被拆（词法器处理）', () => {
+  // 早先用 String.split() 时 `echo "a && b"` 会被拆成两段，
+  // 第二段 `b"` 匹配不到规则 → 整条被拒。那是功能缺陷：
+  // `git commit -m "fix: a && b"` 这种写法极其常见。
+  // 现在走词法器，引号内的分隔符是字符串内容，不参与切分。
+  const rules = ['echo', 'git']
+  for (const cmd of [
+    'echo "a && b"',
+    'echo "a; b"',
+    'echo "x | y"',
+    'git commit -m "fix: a && b"',
+  ]) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      true,
+      `应放行: ${cmd}`,
+    )
+  }
+})
+
+test('safe-args：引号内的危险字符不触发拦截', () => {
+  const rules = ['echo', 'git']
+  // 引号内的 `>` `$(...)` 都是普通字符，不是重定向/命令替换。
+  for (const cmd of ['echo "a > b"', 'git commit -m "x $(y)"']) {
+    assert.equal(
+      decideAutoApproval({ command: cmd, mode: 'safe-args', rules }).allowed,
+      true,
+      `应放行: ${cmd}`,
+    )
+  }
 })
 
 // ---------------------------------------------------------------- 安全重定向

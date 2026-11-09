@@ -1,6 +1,6 @@
 {
   "name": "dsh-sandbox-tune",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "type": "module",
   "description": "让 DSH 沙箱适配开发工具：缓存重定向、可写目录授权、按规则自动批准升权，减少重复的提权弹窗。",
   "main": "./index.js",
@@ -13,20 +13,21 @@
     "./client": "./client.js"
   },
   "files": [
-    "index.js",
-    "executor.js",
-    "provider.js",
-    "client.js",
-    "cordis.patch.yml",
-    "lib",
-    "examples",
-    "assets",
-    "test",
-    "README.md",
-    "README.zh.md",
     "CHANGELOG.md",
     "LICENSE",
-    "RELEASING.md"
+    "README.md",
+    "README.zh.md",
+    "RELEASING.md",
+    "assets",
+    "client.js",
+    "cordis.patch.yml",
+    "examples",
+    "executor.js",
+    "index.js",
+    "lib",
+    "lib/shell-lexer.js",
+    "provider.js",
+    "test"
   ],
   "dsh": {
     "bundle": {
